@@ -4,25 +4,37 @@ data "aws_msk_cluster" "cluster" {
 
 locals {
   addrs = split(",", data.aws_msk_cluster.cluster.bootstrap_brokers_tls)
-  hosts = [for x in local.addrs : split(":", x)[0]]
+  hosts = toset([for x in local.addrs : split(":", x)[0]])
 }
 
 data "dns_a_record_set" "brokers" {
-  count = data.aws_msk_cluster.cluster.number_of_broker_nodes
-  host  = local.hosts[count.index]
+  for_each = local.hosts
+  host     = each.value
 }
 
 data "aws_network_interfaces" "network_interfaces" {
-  count = data.aws_msk_cluster.cluster.number_of_broker_nodes
+  for_each = data.dns_a_record_set.brokers
   filter {
     name   = "private-ip-address"
-    values = data.dns_a_record_set.brokers.*.addrs[count.index]
+    values = each.value.addrs
   }
 }
 
 resource "aws_eip" "eips" {
-  count                     = data.aws_msk_cluster.cluster.number_of_broker_nodes
-  network_interface         = tolist(data.aws_network_interfaces.network_interfaces[count.index].ids)[0]
-  associate_with_private_ip = data.dns_a_record_set.brokers.*.addrs[count.index][0]
-  tags                      = merge(var.tags, { ID = count.index })
+  for_each                  = data.dns_a_record_set.brokers
+  network_interface         = tolist(data.aws_network_interfaces.network_interfaces[each.key].ids)[0]
+  associate_with_private_ip = each.value.addrs[0]
+  tags                      = merge(var.tags, data.aws_msk_cluster.cluster.tags, { host = each.key })
+}
+
+locals {
+  host_mapping = [for key, val in aws_eip.eips : format("%s   %s\n", val.public_ip, key)]
+  content      = join("", local.host_mapping)
+}
+
+resource "local_file" "file" {
+  count           = var.create_host_file ? 1 : 0
+  content         = local.content
+  filename        = "${path.root}/hosts"
+  file_permission = "0644"
 }
