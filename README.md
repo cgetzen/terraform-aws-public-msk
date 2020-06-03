@@ -5,6 +5,13 @@
 
 Terraform module that exposes an existing MSK cluster to the internet.
 
+## Description
+
+This module takes an existing MSK cluster built in a public subnet and assigns
+an EIP to each broker. It outputs an /etc/hosts file so that you can use the
+same MSK broker connection string, which is helpful if clients are doing SSL
+host verification.
+
 ## Usage
 
 ```hcl
@@ -16,8 +23,8 @@ module "public_msk" {
   check_errors     = true
   create_host_file = true
   tags = {
-    Terraform   = "true"
-    Environment = "dev"
+    created_with = "terraform"
+    environment  = "prod"
   }
 }
 ```
